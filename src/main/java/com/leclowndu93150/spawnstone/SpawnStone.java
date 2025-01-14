@@ -1,32 +1,31 @@
 package com.leclowndu93150.spawnstone;
 
-import net.blay09.mods.waystones.block.ModBlocks;
-import net.blay09.mods.waystones.block.WaystoneBlock;
-import net.blay09.mods.waystones.block.WaystoneBlockBase;
-import net.blay09.mods.waystones.api.WaystoneOrigin;
-import net.blay09.mods.waystones.block.entity.WaystoneBlockEntity;
+import net.blay09.mods.waystones.api.IMutableWaystone;
+import net.blay09.mods.waystones.api.IWaystone;
+import net.blay09.mods.waystones.api.WaystonesAPI;
+import net.blay09.mods.waystones.api.WaystoneStyles;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.Tags;
 import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+
+import java.util.Optional;
 
 @Mod("spawnstone")
 public class SpawnStone {
 
     private static ForgeConfigSpec.IntValue maxRange;
     private static ForgeConfigSpec.IntValue minRange;
-    private static ForgeConfigSpec.BooleanValue forceUnbreakable;
     private static final String SPAWNSTONE_TAG = "spawnstone_placed";
     private static final String SPAWNSTONE_POS_TAG = "spawnstone_position";
 
@@ -37,18 +36,10 @@ public class SpawnStone {
 
     private void setupConfig() {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
-
-        builder.comment("SpawnStone Configuration");
-
         minRange = builder.comment("Minimum range from spawn to generate waystone")
-                .defineInRange("minRange", 5, 1, 50);
-
+                .defineInRange("minRange", 5, 1, Integer.MAX_VALUE);
         maxRange = builder.comment("Maximum range from spawn to generate waystone")
-                .defineInRange("maxRange", 15, 1, 100);
-
-        forceUnbreakable = builder.comment("Force waystone to be unbreakable regardless of Waystones mod config")
-                .define("forceUnbreakable", true);
-
+                .defineInRange("maxRange", 15, 1, Integer.MAX_VALUE);
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, builder.build());
     }
 
@@ -56,7 +47,6 @@ public class SpawnStone {
     public void onPlayerFirstJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             CompoundTag data = player.getPersistentData();
-
             if (!data.contains(SPAWNSTONE_TAG)) {
                 data.putBoolean(SPAWNSTONE_TAG, true);
                 BlockPos pos = generateWaystone(player);
@@ -71,76 +61,40 @@ public class SpawnStone {
         }
     }
 
-    @SubscribeEvent
-    public void onBlockBreak(BlockEvent.BreakEvent event) {
-        if (!forceUnbreakable.get()) return;
+    private boolean canPlaceWaystone(BlockPos pos, ServerPlayer player) {
+        BlockState blockState = player.level().getBlockState(pos);
+        BlockState blockAbove = player.level().getBlockState(pos.above());
+        BlockState blockBelow = player.level().getBlockState(pos.below());
 
-        BlockPos pos = event.getPos();
-        ServerPlayer player = (ServerPlayer) event.getPlayer();
-        CompoundTag data = player.getPersistentData();
-
-        if (data.contains(SPAWNSTONE_POS_TAG)) {
-            CompoundTag posTag = data.getCompound(SPAWNSTONE_POS_TAG);
-            BlockPos spawnstonePos = new BlockPos(
-                    posTag.getInt("x"),
-                    posTag.getInt("y"),
-                    posTag.getInt("z")
-            );
-
-            if (pos.equals(spawnstonePos) || pos.equals(spawnstonePos.above())) {
-                event.setCanceled(true);
-            }
+        if (blockState.getFluidState().isSource() || blockAbove.getFluidState().isSource()) {
+            return false;
         }
+
+        return (blockState.canBeReplaced() || blockState.isAir()) &&
+                (blockAbove.canBeReplaced() || blockAbove.isAir()) &&
+                blockBelow.isSolid() &&
+                !blockBelow.is(BlockTags.LEAVES);
     }
 
     private BlockPos generateWaystone(ServerPlayer player) {
-        ServerLevel level = player.serverLevel();
-        BlockPos spawnPos = level.getSharedSpawnPos();
-
+        BlockPos spawnPos = player.serverLevel().getSharedSpawnPos();
         int minR = minRange.get();
         int maxR = maxRange.get();
 
-        for(int attempts = 0; attempts < 50; attempts++) {
-            int x = spawnPos.getX() + level.random.nextIntBetweenInclusive(minR, maxR) * (level.random.nextBoolean() ? 1 : -1);
-            int z = spawnPos.getZ() + level.random.nextIntBetweenInclusive(minR, maxR) * (level.random.nextBoolean() ? 1 : -1);
+        for (int attempts = 0; attempts < 50; attempts++) {
+            int x = spawnPos.getX() + player.serverLevel().random.nextIntBetweenInclusive(minR, maxR) * (player.serverLevel().random.nextBoolean() ? 1 : -1);
+            int z = spawnPos.getZ() + player.serverLevel().random.nextIntBetweenInclusive(minR, maxR) * (player.serverLevel().random.nextBoolean() ? 1 : -1);
 
-            BlockPos pos = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, new BlockPos(x, 0, z));
+            BlockPos testPos = player.serverLevel().getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, new BlockPos(x, 0, z));
 
-            if (canPlaceWaystone(level, pos)) {
-                placeWaystone(level, pos);
-                return pos;
+            if (canPlaceWaystone(testPos, player)) {
+                Optional<IWaystone> waystone = WaystonesAPI.placeWaystone(player.serverLevel(), testPos, WaystoneStyles.DEFAULT);
+                if (waystone.isPresent()) {
+                    ((IMutableWaystone)waystone.get()).setOwnerUid(player.getUUID());
+                    return testPos;
+                }
             }
         }
         return null;
-    }
-
-    private boolean canPlaceWaystone(ServerLevel level, BlockPos pos) {
-        return level.getBlockState(pos).isAir() &&
-                level.getBlockState(pos.above()).isAir() &&
-                !level.getBlockState(pos.below()).isAir();
-    }
-
-    private void placeWaystone(ServerLevel level, BlockPos pos) {
-        Direction facing = Direction.from2DDataValue(level.random.nextInt(4));
-
-        BlockState lowerState = ModBlocks.waystone.defaultBlockState()
-                .setValue(WaystoneBlock.FACING, facing)
-                .setValue(WaystoneBlock.HALF, DoubleBlockHalf.LOWER)
-                .setValue(WaystoneBlockBase.ORIGIN, WaystoneOrigin.WILDERNESS);
-
-        BlockState upperState = lowerState.setValue(WaystoneBlock.HALF, DoubleBlockHalf.UPPER);
-
-        level.setBlock(pos, lowerState, 3);
-        level.setBlock(pos.above(), upperState, 3);
-
-        WaystoneBlockEntity blockEntity = (WaystoneBlockEntity) level.getBlockEntity(pos);
-        if (blockEntity != null) {
-            blockEntity.initializeWaystone(level, null, WaystoneOrigin.WILDERNESS);
-
-            WaystoneBlockEntity upperEntity = (WaystoneBlockEntity) level.getBlockEntity(pos.above());
-            if (upperEntity != null) {
-                upperEntity.initializeFromBase(blockEntity);
-            }
-        }
     }
 }
