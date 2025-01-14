@@ -4,15 +4,18 @@ import net.blay09.mods.waystones.api.IMutableWaystone;
 import net.blay09.mods.waystones.api.IWaystone;
 import net.blay09.mods.waystones.api.WaystonesAPI;
 import net.blay09.mods.waystones.api.WaystoneStyles;
+import net.blay09.mods.waystones.block.WaystoneBlockBase;
+import net.blay09.mods.waystones.api.WaystoneOrigin;
+import net.blay09.mods.waystones.block.entity.WaystoneBlockEntityBase;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.common.Tags;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -91,6 +94,17 @@ public class SpawnStone {
                 Optional<IWaystone> waystone = WaystonesAPI.placeWaystone(player.serverLevel(), testPos, WaystoneStyles.DEFAULT);
                 if (waystone.isPresent()) {
                     ((IMutableWaystone)waystone.get()).setOwnerUid(player.getUUID());
+
+                    BlockEntity blockEntity = player.serverLevel().getBlockEntity(testPos);
+                    if (blockEntity instanceof WaystoneBlockEntityBase) {
+                        ((WaystoneBlockEntityBase)blockEntity).initializeWaystone((ServerLevel)player.level(), player, WaystoneOrigin.WILDERNESS);
+
+                        BlockEntity topEntity = player.serverLevel().getBlockEntity(testPos.above());
+                        if (topEntity instanceof WaystoneBlockEntityBase) {
+                            ((WaystoneBlockEntityBase)topEntity).initializeFromBase((WaystoneBlockEntityBase)blockEntity);
+                        }
+                    }
+
                     return testPos;
                 }
             }
