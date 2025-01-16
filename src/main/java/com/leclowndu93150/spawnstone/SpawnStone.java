@@ -12,6 +12,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.ForgeConfigSpec;
@@ -49,17 +50,21 @@ public class SpawnStone {
     @SubscribeEvent
     public void onPlayerFirstJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            CompoundTag data = player.getPersistentData();
-            if (!data.contains(SPAWNSTONE_TAG)) {
-                data.putBoolean(SPAWNSTONE_TAG, true);
+            CompoundTag persistentData = player.getGameProfile().getProperties().containsKey(SPAWNSTONE_TAG)
+                    ? new CompoundTag()
+                    : player.getPersistentData().getCompound(Player.PERSISTED_NBT_TAG);
+
+            if (!persistentData.contains(SPAWNSTONE_TAG)) {
+                persistentData.putBoolean(SPAWNSTONE_TAG, true);
                 BlockPos pos = generateWaystone(player);
                 if (pos != null) {
                     CompoundTag posTag = new CompoundTag();
                     posTag.putInt("x", pos.getX());
                     posTag.putInt("y", pos.getY());
                     posTag.putInt("z", pos.getZ());
-                    data.put(SPAWNSTONE_POS_TAG, posTag);
+                    persistentData.put(SPAWNSTONE_POS_TAG, posTag);
                 }
+                player.getPersistentData().put(Player.PERSISTED_NBT_TAG, persistentData);
             }
         }
     }
