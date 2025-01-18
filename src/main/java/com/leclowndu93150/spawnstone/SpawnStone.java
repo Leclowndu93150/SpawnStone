@@ -9,6 +9,7 @@ import net.blay09.mods.waystones.api.WaystoneOrigin;
 import net.blay09.mods.waystones.block.entity.WaystoneBlockEntityBase;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
@@ -30,6 +31,7 @@ public class SpawnStone {
 
     private static ForgeConfigSpec.IntValue maxRange;
     private static ForgeConfigSpec.IntValue minRange;
+    private static ForgeConfigSpec.IntValue maxAttempts;
     private static final String SPAWNSTONE_TAG = "spawnstone_placed";
     private static final String SPAWNSTONE_POS_TAG = "spawnstone_position";
 
@@ -44,6 +46,8 @@ public class SpawnStone {
                 .defineInRange("minRange", 5, 1, Integer.MAX_VALUE);
         maxRange = builder.comment("Maximum range from spawn to generate waystone")
                 .defineInRange("maxRange", 15, 1, Integer.MAX_VALUE);
+        maxAttempts = builder.comment("Maximum attempts to place a waystone")
+                .defineInRange("maxAttempts", 10, 1, Integer.MAX_VALUE);
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, builder.build());
     }
 
@@ -56,13 +60,21 @@ public class SpawnStone {
 
             if (!persistentData.contains(SPAWNSTONE_TAG)) {
                 persistentData.putBoolean(SPAWNSTONE_TAG, true);
-                BlockPos pos = generateWaystone(player);
-                if (pos != null) {
-                    CompoundTag posTag = new CompoundTag();
-                    posTag.putInt("x", pos.getX());
-                    posTag.putInt("y", pos.getY());
-                    posTag.putInt("z", pos.getZ());
-                    persistentData.put(SPAWNSTONE_POS_TAG, posTag);
+                for (int retry = 0; retry < maxAttempts.get(); retry++) {
+                    BlockPos pos = generateWaystone(player);
+                    if (pos != null) {
+                        CompoundTag posTag = new CompoundTag();
+                        posTag.putInt("x", pos.getX());
+                        posTag.putInt("y", pos.getY());
+                        posTag.putInt("z", pos.getZ());
+                        persistentData.put(SPAWNSTONE_POS_TAG, posTag);
+                        player.sendSystemMessage(Component.literal("A waystone has been generated for you at " + pos.toShortString()));
+                        break;
+                    }
+
+                    if (retry == maxAttempts.get() - 1) {
+                        player.sendSystemMessage(Component.literal("Failed to generate a waystone after " + maxAttempts.get() + " attempts."));
+                    }
                 }
                 player.getPersistentData().put(Player.PERSISTED_NBT_TAG, persistentData);
             }
